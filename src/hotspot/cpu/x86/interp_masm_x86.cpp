@@ -1186,6 +1186,7 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
     }
 
     if (LockingMode == LM_LIGHTWEIGHT) {
+      movptr(Address(lock_reg, mark_offset), 0);
 #ifdef _LP64
       const Register thread = r15_thread;
 #else
@@ -1255,6 +1256,7 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
 
     // Call the runtime routine for slow case
     if (LockingMode == LM_LIGHTWEIGHT) {
+      // TODO[OMWorld]: Clean this monitorenter_obj up. We still want to use the lock_reg for lightweight
       call_VM(noreg,
               CAST_FROM_FN_PTR(address, InterpreterRuntime::monitorenter_obj),
               obj_reg);
