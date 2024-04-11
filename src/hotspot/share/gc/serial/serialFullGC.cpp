@@ -48,6 +48,7 @@
 #include "gc/shared/preservedMarks.inline.hpp"
 #include "gc/shared/referencePolicy.hpp"
 #include "gc/shared/referenceProcessorPhaseTimes.hpp"
+#include "gc/shared/slidingForwarding.inline.hpp"
 #include "gc/shared/space.inline.hpp"
 #include "gc/shared/strongRootsScope.hpp"
 #include "gc/shared/weakProcessor.hpp"
@@ -223,7 +224,7 @@ class Compacter {
   static void forward_obj(oop obj, HeapWord* new_addr) {
     prefetch_write_scan(obj);
     if (cast_from_oop<HeapWord*>(obj) != new_addr) {
-      obj->forward_to(cast_to_oop(new_addr));
+      SlidingForwarding::forward_to(obj, cast_to_oop(new_addr));
     } else {
       assert(obj->is_gc_marked(), "inv");
       // This obj will stay in-place. Fix the markword.
@@ -248,7 +249,7 @@ class Compacter {
     prefetch_read_scan(addr);
 
     oop obj = cast_to_oop(addr);
-    oop new_obj = obj->forwardee();
+    oop new_obj = SlidingForwarding::forwardee(obj);
     HeapWord* new_addr = cast_from_oop<HeapWord*>(new_obj);
     assert(addr != new_addr, "inv");
     prefetch_write_copy(new_addr);
@@ -344,13 +345,13 @@ public:
       HeapWord* top = space->top();
 
       // Check if the first obj inside this space is forwarded.
-      if (!cast_to_oop(cur_addr)->is_forwarded()) {
+      if (SlidingForwarding::is_not_forwarded(cast_to_oop(cur_addr))) {
         // Jump over consecutive (in-place) live-objs-chunk
         cur_addr = get_first_dead(i);
       }
 
       while (cur_addr < top) {
-        if (!cast_to_oop(cur_addr)->is_forwarded()) {
+        if (SlidingForwarding::is_not_forwarded(cast_to_oop(cur_addr))) {
           cur_addr = *(HeapWord**) cur_addr;
           continue;
         }
@@ -676,6 +677,8 @@ void SerialFullGC::invoke_at_safepoint(bool clear_all_softrefs) {
 
   phase1_mark(clear_all_softrefs);
 
+  SlidingForwarding::begin();
+
   Compacter compacter{gch};
 
   {
@@ -722,6 +725,8 @@ void SerialFullGC::invoke_at_safepoint(bool clear_all_softrefs) {
   // Set saved marks for allocation profiler (and other things? -- dld)
   // (Should this be in general part?)
   gch->save_marks();
+
+  SlidingForwarding::end();
 
   deallocate_stacks();
 
