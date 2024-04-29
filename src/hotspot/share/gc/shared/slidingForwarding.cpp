@@ -26,6 +26,8 @@
 #include "precompiled.hpp"
 #include "gc/shared/gc_globals.hpp"
 #include "gc/shared/slidingForwarding.hpp"
+#include "runtime/mutex.hpp"
+#include "runtime/mutexLocker.hpp"
 #include "utilities/ostream.hpp"
 #include "utilities/powerOfTwo.hpp"
 
@@ -42,6 +44,7 @@ uintptr_t SlidingForwarding::_region_mask = 0;
 HeapWord** SlidingForwarding::_biased_bases[SlidingForwarding::NUM_TARGET_REGIONS] = { nullptr, nullptr };
 HeapWord** SlidingForwarding::_bases_table = nullptr;
 SlidingForwarding::FallbackTable* SlidingForwarding::_fallback_table = nullptr;
+Mutex* SlidingForwarding::_fallback_lock = nullptr;
 
 void SlidingForwarding::initialize(MemRegion heap, size_t region_size_words) {
 #ifdef _LP64
@@ -52,18 +55,14 @@ void SlidingForwarding::initialize(MemRegion heap, size_t region_size_words) {
   // if it happens to be aligned to allow biasing.
   size_t rounded_heap_size = round_up_power_of_2(heap.byte_size());
 
-  if (UseSerialGC && (heap.word_size() <= (1 << NUM_OFFSET_BITS)) &&
-      is_aligned((uintptr_t)_heap_start, rounded_heap_size)) {
-    _num_regions = 1;
-    _region_size_words = heap.word_size();
-    _region_size_bytes_shift = log2i_exact(rounded_heap_size);
-  } else {
-    _num_regions = align_up(pointer_delta(heap.end(), heap.start()), region_size_words) / region_size_words;
-    _region_size_words = region_size_words;
-    _region_size_bytes_shift = log2i_exact(_region_size_words) + LogHeapWordSize;
-  }
+  _region_size_words = MIN2(region_size_words, size_t(1 << NUM_OFFSET_BITS));
+  _num_regions = (rounded_heap_size / BytesPerWord) / _region_size_words;
+  _region_size_bytes_shift = log2i_exact(_region_size_words) + LogHeapWordSize;
+
   _heap_start_region_bias = (uintptr_t)_heap_start >> _region_size_bytes_shift;
   _region_mask = ~((uintptr_t(1) << _region_size_bytes_shift) - 1);
+
+  _fallback_lock = new Mutex(Mutex::nosafepoint, "SlidingForwarding_fallback_lock");
 
   guarantee((_heap_start_region_bias << _region_size_bytes_shift) == (uintptr_t)_heap_start, "must be aligned: _heap_start_region_bias: " SIZE_FORMAT ", _region_size_byte_shift: %u, _heap_start: " PTR_FORMAT, _heap_start_region_bias, _region_size_bytes_shift, p2i(_heap_start));
 
@@ -100,13 +99,18 @@ void SlidingForwarding::end() {
 }
 
 void SlidingForwarding::fallback_forward_to(HeapWord* from, HeapWord* to) {
+  assert(to != nullptr, "no null forwarding");
+  MutexLocker ml(_fallback_lock, Mutex::_no_safepoint_check_flag);
   if (_fallback_table == nullptr) {
     _fallback_table = new (mtGC) FallbackTable();
   }
-  _fallback_table->put_when_absent(from, to);
+  bool added = _fallback_table->put(from, to);
+  assert(_fallback_table->get(from) != nullptr, "must have entered forwarding");
+  assert(*_fallback_table->get(from) == to, "forwarding must be correct, added: %s, from: " PTR_FORMAT ", to: " PTR_FORMAT ", fwd: " PTR_FORMAT, BOOL_TO_STR(added), p2i(from), p2i(to), p2i(_fallback_table->get(from)));
 }
 
 HeapWord* SlidingForwarding::fallback_forwardee(HeapWord* from) {
+  MutexLocker ml(_fallback_lock, Mutex::_no_safepoint_check_flag);
   assert(_fallback_table != nullptr, "fallback table must be present");
   HeapWord** found = _fallback_table->get(from);
   if (found != nullptr) {
