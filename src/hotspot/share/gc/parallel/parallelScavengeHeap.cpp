@@ -41,6 +41,7 @@
 #include "gc/shared/genArguments.hpp"
 #include "gc/shared/locationPrinter.inline.hpp"
 #include "gc/shared/scavengableNMethods.hpp"
+#include "gc/shared/slidingForwarding.hpp"
 #include "gc/shared/suspendibleThreadSet.hpp"
 #include "logging/log.hpp"
 #include "memory/iterator.hpp"
@@ -130,6 +131,8 @@ jint ParallelScavengeHeap::initialize() {
   CPUTimeCounters::create_counter(CPUTimeGroups::CPUTimeType::gc_parallel_workers);
 
   ParallelInitLogger::print();
+
+  SlidingForwarding::initialize(reserved_region(), SpaceAlignment / HeapWordSize);
 
   return JNI_OK;
 }

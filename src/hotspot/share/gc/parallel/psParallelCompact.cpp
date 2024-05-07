@@ -59,6 +59,7 @@
 #include "gc/shared/referencePolicy.hpp"
 #include "gc/shared/referenceProcessor.hpp"
 #include "gc/shared/referenceProcessorPhaseTimes.hpp"
+#include "gc/shared/slidingForwarding.inline.hpp"
 #include "gc/shared/spaceDecorator.inline.hpp"
 #include "gc/shared/taskTerminator.hpp"
 #include "gc/shared/weakProcessor.inline.hpp"
@@ -839,6 +840,8 @@ void PSParallelCompact::pre_compact()
     Universe::verify("Before GC");
   }
 
+  SlidingForwarding::begin();
+
   DEBUG_ONLY(mark_bitmap()->verify_clear();)
   DEBUG_ONLY(summary_data().verify_clear();)
 }
@@ -846,6 +849,9 @@ void PSParallelCompact::pre_compact()
 void PSParallelCompact::post_compact()
 {
   GCTraceTime(Info, gc, phases) tm("Post Compact", &_gc_timer);
+
+  SlidingForwarding::end();
+
   ParCompactionManager::remove_all_shadow_regions();
 
   CodeCache::on_gc_marking_cycle_finish();
@@ -1902,7 +1908,7 @@ void PSParallelCompact::forward_to_new_addr() {
             oop obj = cast_to_oop(cur_addr);
             if (new_addr != cur_addr) {
               cm->preserved_marks()->push_if_necessary(obj, obj->mark());
-              obj->forward_to(cast_to_oop(new_addr));
+              SlidingForwarding::forward_to(obj, cast_to_oop(new_addr));
             }
             size_t obj_size = obj->size();
             live_words += obj_size;
@@ -1945,7 +1951,7 @@ void PSParallelCompact::verify_forward() {
       }
       oop obj = cast_to_oop(cur_addr);
       if (cur_addr != bump_ptr) {
-        assert(obj->forwardee() == cast_to_oop(bump_ptr), "inv");
+        assert(SlidingForwarding::forwardee(obj) == cast_to_oop(bump_ptr), "inv");
       }
       bump_ptr += obj->size();
       cur_addr += obj->size();
@@ -2718,8 +2724,8 @@ MoveAndUpdateClosure::do_addr(HeapWord* addr, size_t words) {
   if (copy_destination() != source()) {
     DEBUG_ONLY(PSParallelCompact::check_new_location(source(), destination());)
     assert(source() != destination(), "inv");
-    assert(cast_to_oop(source())->is_forwarded(), "inv");
-    assert(cast_to_oop(source())->forwardee() == cast_to_oop(destination()), "inv");
+    assert(SlidingForwarding::is_forwarded(cast_to_oop(source())), "inv");
+    assert(SlidingForwarding::forwardee(cast_to_oop(source())) == cast_to_oop(destination()), "inv");
     Copy::aligned_conjoint_words(source(), copy_destination(), words);
     cast_to_oop(copy_destination())->init_mark();
   }
