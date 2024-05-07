@@ -827,7 +827,9 @@ void DefNewGeneration::handle_promotion_failure(oop old) {
 oop DefNewGeneration::copy_to_survivor_space(oop old) {
   assert(is_in_reserved(old) && !old->is_forwarded(),
          "shouldn't be scavenging this oop");
-  size_t s = old->size();
+  size_t old_size = old->size();
+  size_t s = old->copy_size(old_size, old->mark());
+
   oop obj = nullptr;
 
   // Try allocating obj in to-space (unless too old)
@@ -853,7 +855,9 @@ oop DefNewGeneration::copy_to_survivor_space(oop old) {
     Prefetch::write(obj, interval);
 
     // Copy obj
-    Copy::aligned_disjoint_words(cast_from_oop<HeapWord*>(old), cast_from_oop<HeapWord*>(obj), s);
+    Copy::aligned_disjoint_words(cast_from_oop<HeapWord*>(old), cast_from_oop<HeapWord*>(obj), old_size);
+    markWord new_mark = obj->mark();
+    assert(!(new_mark.hash_is_hashed() && new_mark.hash_is_copied()), "must not be simultaneously hashed and copied state");
 
     ContinuationGCSupport::transform_stack_chunk(obj);
 
@@ -862,8 +866,10 @@ oop DefNewGeneration::copy_to_survivor_space(oop old) {
     age_table()->add(obj, s);
   }
 
+  bool expanded = obj->initialize_hash_if_necessary(old);
+
   // Done, insert forward pointer to obj in this header
-  old->forward_to(obj);
+  old->forward_to(obj, expanded);
 
   if (SerialStringDedup::is_candidate_from_evacuation(obj, new_obj_is_tenured)) {
     // Record old; request adds a new weak reference, which reference

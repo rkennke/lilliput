@@ -54,6 +54,18 @@
 // the mark word from the synchronization code.
 //
 
+static uintx objhash(oop obj) {
+  if (UseCompactObjectHeaders) {
+    uintx hash = LightweightSynchronizer::get_hash(obj->mark(), obj);
+    assert(hash != 0, "should have a hash");
+    return hash;
+  } else {
+    uintx hash = obj->mark().hash();
+    assert(hash != 0, "should have a hash");
+    return hash;
+  }
+}
+
 // ConcurrentHashTable storing links from objects to ObjectMonitors
 class ObjectMonitorWorld : public CHeapObj<mtOMWorld> {
   struct Config {
@@ -81,9 +93,7 @@ class ObjectMonitorWorld : public CHeapObj<mtOMWorld> {
     Lookup(oop obj) : _obj(obj) {}
 
     uintx get_hash() const {
-      uintx hash = _obj->mark().hash();
-      assert(hash != 0, "should have a hash");
-      return hash;
+      return objhash(_obj);
     }
 
     bool equals(ObjectMonitor** value) {
@@ -275,6 +285,7 @@ public:
     Lookup lookup_f(obj);
     auto found_f = [&](ObjectMonitor** found) {
       assert((*found)->object_peek() == obj, "must be");
+      assert(objhash(obj) == (uintx)(*found)->hash(), "hash must match");
       result = *found;
     };
     bool grow;
@@ -307,7 +318,7 @@ public:
        oop obj = om->object_peek();
        st->print("monitor " PTR_FORMAT " ", p2i(om));
        st->print("object " PTR_FORMAT, p2i(obj));
-       assert(obj->mark().hash() == om->hash(), "hash must match");
+       assert(objhash(obj) == (uintx)om->hash(), "hash must match");
        st->cr();
        return true;
     };
@@ -395,7 +406,7 @@ ObjectMonitor* LightweightSynchronizer::add_monitor(JavaThread* current, ObjectM
   assert(LockingMode == LM_LIGHTWEIGHT, "must be");
   assert(obj == monitor->object(), "must be");
 
-  intptr_t hash = obj->mark().hash();
+  intptr_t hash = objhash(obj);
   assert(hash != 0, "must be set when claiming the object monitor");
   monitor->set_hash(hash);
 
@@ -999,19 +1010,49 @@ bool LightweightSynchronizer::contains_monitor(Thread* current, ObjectMonitor* m
   return _omworld->contains_monitor(current, monitor);
 }
 
+uint32_t LightweightSynchronizer::get_hash(markWord mark, oop obj, Klass* klass) {
+  assert(UseCompactObjectHeaders, "Only with compact i-hash");
+  //assert(mark.is_neutral() | mark.is_fast_locked(), "only from neutral or fast-locked mark: " INTPTR_FORMAT, mark.value());
+  assert(mark.hash_is_hashed_or_copied(), "only from hashed or copied object");
+  if (mark.hash_is_copied()) {
+    return obj->int_field(klass->hash_offset_in_bytes(obj));
+  } else {
+    assert(mark.hash_is_hashed(), "must be hashed");
+    assert(hashCode == 6 || hashCode == 2, "must have idempotent hashCode");
+    // Already marked as hashed, but not yet copied. Recompute hash and return it.
+    return ObjectSynchronizer::get_next_hash(nullptr, obj); // recompute hash
+  }
+}
+
+uint32_t LightweightSynchronizer::get_hash(markWord mark, oop obj) {
+  return get_hash(mark, obj, mark.klass());
+}
+
 intptr_t LightweightSynchronizer::FastHashCode(Thread* current, oop obj) {
   assert(LockingMode == LM_LIGHTWEIGHT, "must be");
 
   markWord mark = obj->mark_acquire();
   for(;;) {
-    intptr_t hash = mark.hash();
-    if (hash != 0) {
-      return hash;
+    intptr_t hash;
+    markWord old_mark = mark;
+    markWord new_mark;
+    if (UseCompactObjectHeaders) {
+      if (mark.hash_is_hashed_or_copied()) {
+        return get_hash(mark, obj);
+      }
+      hash = ObjectSynchronizer::get_next_hash(current, obj);  // get a new hash
+      new_mark = mark.hash_set_hashed();
+      // Let i-hashed objects promote immediately, to avoid young-gen overflow
+      // through i-hash expansion.
+      //new_mark = new_mark.set_age(markWord::max_age);
+    } else {
+      hash = mark.hash();
+      if (hash != 0) {
+        return hash;
+      }
+      hash = ObjectSynchronizer::get_next_hash(current, obj);
+      new_mark = old_mark.copy_set_hash(hash);
     }
-
-    hash = ObjectSynchronizer::get_next_hash(current, obj);
-    const markWord old_mark = mark;
-    const markWord new_mark = old_mark.copy_set_hash(hash);
 
     mark = obj->cas_set_mark(new_mark, old_mark);
     if (old_mark == mark) {

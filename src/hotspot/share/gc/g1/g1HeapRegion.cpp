@@ -728,6 +728,7 @@ void HeapRegion::object_iterate(ObjectClosure* blk) {
   HeapWord* p = bottom();
   while (p < top()) {
     if (block_is_obj(p, parsable_bottom())) {
+      log_trace(gc)("Iterate object: " PTR_FORMAT, p2i(p));
       blk->do_object(cast_to_oop(p));
     }
     p += block_size(p);
