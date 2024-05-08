@@ -1911,7 +1911,8 @@ void PSParallelCompact::forward_to_new_addr() {
               SlidingForwarding::forward_to(obj, cast_to_oop(new_addr));
             }
             size_t obj_size = obj->size();
-            live_words += obj_size;
+            size_t new_size = (new_addr != cur_addr) ? obj->copy_size(obj_size, obj->mark()) : obj_size;
+            live_words += new_size;
             cur_addr += obj_size;
           }
         }
@@ -1937,7 +1938,8 @@ void PSParallelCompact::verify_forward() {
     HeapWord* dense_prefix_addr = dense_prefix(SpaceId(id));
     HeapWord* top = sp->top();
     HeapWord* cur_addr = dense_prefix_addr;
-
+    oop prev = nullptr;
+    HeapWord* prev_bump = nullptr;
     while (cur_addr < top) {
       cur_addr = mark_bitmap()->find_obj_beg(cur_addr, top);
       if (cur_addr >= top) {
@@ -1945,16 +1947,22 @@ void PSParallelCompact::verify_forward() {
       }
       assert(mark_bitmap()->is_marked(cur_addr), "inv");
       // Move to the space containing cur_addr
+      bool reset_bump = false;
       if (bump_ptr == _space_info[bump_ptr_space].new_top()) {
         bump_ptr = space(space_id(cur_addr))->bottom();
         bump_ptr_space = space_id(bump_ptr);
+        reset_bump = true;
       }
       oop obj = cast_to_oop(cur_addr);
       if (cur_addr != bump_ptr) {
-        assert(SlidingForwarding::forwardee(obj) == cast_to_oop(bump_ptr), "inv");
+        assert(SlidingForwarding::forwardee(obj) == cast_to_oop(bump_ptr), "inv, obj: " PTR_FORMAT ", bump_ptr: " PTR_FORMAT ", fwd: " PTR_FORMAT ", prev: " PTR_FORMAT ", prev-mark: " INTPTR_FORMAT ", prev-size: " SIZE_FORMAT ", prev-bump: " PTR_FORMAT ", reset-bump: %s", p2i(obj), p2i(bump_ptr), p2i(SlidingForwarding::forwardee(obj)), p2i(prev), prev != nullptr ? prev->mark().value() : 0, prev != nullptr ? prev->size() : 0, p2i(prev_bump), BOOL_TO_STR(reset_bump));
       }
-      bump_ptr += obj->size();
-      cur_addr += obj->size();
+      prev_bump = bump_ptr;
+      size_t old_size = obj->size();
+      bump_ptr += (cur_addr != bump_ptr) ? obj->copy_size(old_size, obj->mark()) : old_size;
+      assert(bump_ptr > prev_bump, "must be monotonic");
+      cur_addr += old_size;
+      prev = obj;
     }
   }
 }
@@ -2727,7 +2735,9 @@ MoveAndUpdateClosure::do_addr(HeapWord* addr, size_t words) {
     assert(SlidingForwarding::is_forwarded(cast_to_oop(source())), "inv");
     assert(SlidingForwarding::forwardee(cast_to_oop(source())) == cast_to_oop(destination()), "inv");
     Copy::aligned_conjoint_words(source(), copy_destination(), words);
-    cast_to_oop(copy_destination())->init_mark();
+    oop new_obj = cast_to_oop(copy_destination());
+    new_obj->init_mark();
+    new_obj->initialize_hash_if_necessary(cast_to_oop(source()));
   }
 
   update_state(words);

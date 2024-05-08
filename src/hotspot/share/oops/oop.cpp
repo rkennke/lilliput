@@ -160,7 +160,7 @@ bool oopDesc::initialize_hash_if_necessary(oop obj) {
     Klass* k = m.klass();
     int offset = k->hash_offset_in_bytes(cast_to_oop(this));
     assert(offset >= 8, "hash offset must not be in header");
-    log_info(gc)("Initializing hash for " PTR_FORMAT ", old: " PTR_FORMAT ", hash: %d, offset: %d", p2i(this), p2i(obj), hash, offset);
+    // log_info(gc)("Initializing hash for " PTR_FORMAT ", old: " PTR_FORMAT ", hash: %d, offset: %d", p2i(this), p2i(obj), hash, offset);
     int_field_put(offset, (jint)hash);
     m = m.hash_set_copied();
     assert(!m.hash_is_hashed(), "must not be hashed state");
