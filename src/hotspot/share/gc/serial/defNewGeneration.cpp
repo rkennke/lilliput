@@ -812,7 +812,7 @@ oop DefNewGeneration::copy_to_survivor_space(oop old) {
     // Copy obj
     Copy::aligned_disjoint_words(cast_from_oop<HeapWord*>(old), cast_from_oop<HeapWord*>(obj), old_size);
     markWord new_mark = obj->mark();
-    assert(!(new_mark.hash_is_hashed() && new_mark.hash_is_copied()), "must not be simultaneously hashed and copied state");
+    assert(!UseCompactObjectHeaders || !(new_mark.hash_is_hashed() && new_mark.hash_is_copied()), "must not be simultaneously hashed and copied state");
 
     ContinuationGCSupport::transform_stack_chunk(obj);
 

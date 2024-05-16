@@ -62,6 +62,7 @@ class oopDesc {
   // make use of the C++ copy/assign incorrect.
   NONCOPYABLE(oopDesc);
 
+  inline markWord cas_set_fwd_impl(markWord new_mark, markWord old_mark, atomic_memory_order order);
   inline oop cas_set_forwardee(markWord new_mark, markWord old_mark, atomic_memory_order order);
 
  public:
@@ -364,8 +365,11 @@ public:
   }
   static int klass_gap_offset_in_bytes() {
     assert(has_klass_gap(), "only applicable to compressed klass pointers");
-    assert(!UseCompactObjectHeaders, "don't use klass_offset_in_bytes() with compact headers");
-    return klass_offset_in_bytes() + sizeof(narrowKlass);
+    if (UseCompactObjectHeaders) {
+      return base_offset_in_bytes();
+    } else {
+      return klass_offset_in_bytes() + sizeof(narrowKlass);
+    }
   }
 
   static int base_offset_in_bytes() {
@@ -374,7 +378,7 @@ public:
       // With compact headers, the Klass* field is not used for the Klass*
       // and is used for the object fields instead.
       STATIC_ASSERT(sizeof(markWord) == 8);
-      return sizeof(markWord);
+      return 4;
     } else if (UseCompressedClassPointers) {
       return sizeof(markWord) + sizeof(narrowKlass);
     } else

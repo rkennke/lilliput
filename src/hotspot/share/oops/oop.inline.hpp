@@ -73,32 +73,56 @@ static void assert_correct_hash_transition(markWord old_mark, markWord new_mark)
 
 void oopDesc::set_mark(markWord m) {
   assert_correct_hash_transition(mark(), m);
-  Atomic::store(&_mark, m);
+  if (UseCompactObjectHeaders) {
+    Atomic::store(reinterpret_cast<uint32_t volatile*>(&_mark), m.value32());
+  } else {
+    Atomic::store(&_mark, m);
+  }
 }
 
 void oopDesc::set_mark(HeapWord* mem, markWord m) {
   if (UseCompactObjectHeaders) assert(!(m.hash_is_hashed() && m.hash_is_copied()), "must not be simultaneously hashed and copied state");
-  *(markWord*)(((char*)mem) + mark_offset_in_bytes()) = m;
+  if (UseCompactObjectHeaders) {
+    *(uint32_t*)(((char*)mem) + mark_offset_in_bytes()) = m.value32();
+  } else {
+    *(markWord*)(((char*)mem) + mark_offset_in_bytes()) = m;
+  }
 }
 
 void oopDesc::release_set_mark(markWord m) {
   assert_correct_hash_transition(mark(), m);
-  Atomic::release_store(&_mark, m);
+  if (UseCompactObjectHeaders) {
+    Atomic::release_store(reinterpret_cast<uint32_t volatile*>(&_mark), m.value32());
+  } else {
+    Atomic::release_store(&_mark, m);
+  }
 }
 
 void oopDesc::release_set_mark(HeapWord* mem, markWord m) {
   if (UseCompactObjectHeaders) assert(!(m.hash_is_hashed() && m.hash_is_copied()), "must not be simultaneously hashed and copied state");
-  Atomic::release_store((markWord*)(((char*)mem) + mark_offset_in_bytes()), m);
+  if (UseCompactObjectHeaders) {
+    Atomic::release_store((uint32_t*)(((char*)mem) + mark_offset_in_bytes()), m.value32());
+  } else {
+    Atomic::release_store((markWord*)(((char*)mem) + mark_offset_in_bytes()), m);
+  }
 }
 
 markWord oopDesc::cas_set_mark(markWord new_mark, markWord old_mark) {
   assert_correct_hash_transition(old_mark, new_mark);
-  return Atomic::cmpxchg(&_mark, old_mark, new_mark);
+  //  if (UseCompactObjectHeaders) {
+  //  return markWord(Atomic::cmpxchg(reinterpret_cast<uint32_t volatile*>(&_mark), old_mark.value32(), new_mark.value32()));
+  //} else {
+    return Atomic::cmpxchg(&_mark, old_mark, new_mark);
+    //}
 }
 
 markWord oopDesc::cas_set_mark(markWord new_mark, markWord old_mark, atomic_memory_order order) {
   assert_correct_hash_transition(old_mark, new_mark);
-  return Atomic::cmpxchg(&_mark, old_mark, new_mark, order);
+  //if (UseCompactObjectHeaders) {
+  //return markWord(Atomic::cmpxchg(reinterpret_cast<uint32_t volatile*>(&_mark), old_mark.value32(), new_mark.value32(), order));
+    //} else {
+    return Atomic::cmpxchg(&_mark, old_mark, new_mark, order);
+    //}
 }
 
 markWord oopDesc::prototype_mark() const {
@@ -184,7 +208,6 @@ void oopDesc::release_set_klass(HeapWord* mem, Klass* k) {
 }
 
 void oopDesc::set_klass_gap(HeapWord* mem, int v) {
-  assert(!UseCompactObjectHeaders, "don't set Klass* gap with compact headers");
   if (UseCompressedClassPointers) {
     *(int*)(((char*)mem) + klass_gap_offset_in_bytes()) = v;
   }
@@ -441,8 +464,13 @@ void oopDesc::forward_to_self() {
   set_mark(mark().set_self_forwarded());
 }
 
+markWord oopDesc::cas_set_fwd_impl(markWord new_mark, markWord old_mark, atomic_memory_order order) {
+  //assert_correct_hash_transition(old_mark, new_mark);
+  return Atomic::cmpxchg(&_mark, old_mark, new_mark);
+}
+
 oop oopDesc::cas_set_forwardee(markWord new_mark, markWord compare, atomic_memory_order order) {
-  markWord old_mark = cas_set_mark(new_mark, compare, order);
+  markWord old_mark = cas_set_fwd_impl(new_mark, compare, order);
   if (old_mark == compare) {
     return nullptr;
   } else {
