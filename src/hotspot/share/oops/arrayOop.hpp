@@ -75,6 +75,7 @@ private:
     if (arrayoopdesc_hs == 0) arrayoopdesc_hs = hs;
     assert(arrayoopdesc_hs == hs, "header size can't change");
 #endif // ASSERT
+    if (UseCompactObjectHeaders) assert(hs == 8, "array header must be 8 bytes");
     return (int)hs;
   }
 
@@ -83,6 +84,7 @@ private:
   // it occupies the second half of the _klass field in oopDesc.
   static int length_offset_in_bytes() {
     if (UseCompactObjectHeaders) {
+      assert(oopDesc::base_offset_in_bytes() == 4, "array length must be as 4 bytes");
       return oopDesc::base_offset_in_bytes();
     } else if (UseCompressedClassPointers) {
       return klass_gap_offset_in_bytes();
