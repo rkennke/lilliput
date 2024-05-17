@@ -28,6 +28,7 @@
 #include "gc/g1/g1CollectedHeap.hpp"
 #include "gc/g1/g1RedirtyCardsQueue.hpp"
 #include "gc/g1/g1OopClosures.hpp"
+#include "gc/g1/g1TaskQueueEntry.hpp"
 #include "gc/g1/g1YoungGCAllocationFailureInjector.hpp"
 #include "gc/shared/ageTable.hpp"
 #include "gc/shared/copyFailedInfo.hpp"
@@ -135,10 +136,10 @@ public:
 
   void verify_task(narrowOop* task) const NOT_DEBUG_RETURN;
   void verify_task(oop* task) const NOT_DEBUG_RETURN;
-  void verify_task(PartialArrayScanTask task) const NOT_DEBUG_RETURN;
-  void verify_task(ScannerTask task) const NOT_DEBUG_RETURN;
+  void verify_task(oop task) const NOT_DEBUG_RETURN;
+  void verify_task(G1TaskQueueEntry task) const NOT_DEBUG_RETURN;
 
-  void push_on_queue(ScannerTask task);
+  void push_on_queue(G1TaskQueueEntry task);
 
   // Apply the post barrier to the given reference field. Enqueues the card of p
   // if the barrier does not filter out the reference for some reason (e.g.
@@ -164,8 +165,8 @@ public:
   size_t flush_stats(size_t* surviving_young_words, uint num_workers, BufferNodeList* buffer_log);
 
 private:
-  void do_partial_array(PartialArrayScanTask task);
-  void start_partial_objarray(G1HeapRegionAttr dest_dir, oop from, oop to);
+  void do_partial_array(oop obj, int chunk, int pow);
+  void start_partial_objarray(G1HeapRegionAttr dest_dir, oop obj);
 
   HeapWord* allocate_copy_slow(G1HeapRegionAttr* dest_attr,
                                Klass* klass,
@@ -187,7 +188,7 @@ private:
   // This method is applied to the fields of the objects that have just been copied.
   template <class T> void do_oop_evac(T* p);
 
-  void dispatch_task(ScannerTask task);
+  void dispatch_task(G1TaskQueueEntry task);
 
   // Tries to allocate word_sz in the PLAB of the next "generation" after trying to
   // allocate into dest. Previous_plab_refill_failed indicates whether previous
