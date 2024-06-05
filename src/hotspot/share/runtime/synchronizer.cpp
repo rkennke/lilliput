@@ -968,7 +968,7 @@ intptr_t ObjectSynchronizer::get_next_hash(Thread* current, oop obj) {
     assert(UseCompactObjectHeaders, "Only with compact i-hash");
 #ifdef _LP64
     uint64_t val = cast_from_oop<uint64_t>(obj);
-    uint64_t hash = FastHash::get_hash64(val, UCONST64(0xAAAAAAAAAAAAAAAA));
+    uint32_t hash = FastHash::get_hash32((uint32_t)val, (uint32_t)(val >> 32));
 #else
     uint32_t val = cast_from_oop<uint32_t>(obj);
     uint32_t hash = FastHash::get_hash32(val, UCONST64(0xAAAAAAAA));

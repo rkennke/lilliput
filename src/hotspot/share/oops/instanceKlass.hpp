@@ -960,6 +960,10 @@ public:
     assert(UseCompactObjectHeaders, "only with compact i-hash");
     return _hash_offset;
   }
+  static int hash_offset_offset_in_bytes() {
+    assert(UseCompactObjectHeaders, "only with compact i-hash");
+    return (int)offset_of(InstanceKlass, _hash_offset);
+  }
 
   // This bit is initialized in classFileParser.cpp.
   // It is false under any of the following conditions:
