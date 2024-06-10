@@ -978,8 +978,8 @@ intptr_t ObjectSynchronizer::get_next_hash(Thread* current, oop obj) {
 
   value &= markWord::hash_mask;
 
-  if (value == 0) value = 0xBAD;
-  assert(value != markWord::no_hash, "invariant");
+  if (hashCode != 6 && value == 0) value = 0xBAD;
+  assert(value != markWord::no_hash || hashCode == 6, "invariant");
   return value;
 }
 

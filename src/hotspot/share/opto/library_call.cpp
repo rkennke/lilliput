@@ -4679,30 +4679,33 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
     Node* A = _gvn.intcon(0xAAAAAAAA);
     // Split object address into lo and hi 32 bits.
     Node* obj_addr = _gvn.transform(new CastP2XNode(nullptr, obj));
-    Node* x = ConvX2I(obj_addr);
+    Node* x = _gvn.transform(new ConvL2INode(obj_addr));
     Node* upper_addr = _gvn.transform(new URShiftLNode(obj_addr, _gvn.intcon(32)));
-    Node* y = ConvX2I(upper_addr);
+    Node* y = _gvn.transform(new ConvL2INode(upper_addr));
 
     Node* H0 = _gvn.transform(new XorINode(x, y));
     Node* L0 = _gvn.transform(new XorINode(x, A));
 
     // Full multiplication of two 32 bit values L0 and M into a hi/lo result in two 32 bit values V0 and U0.
-    Node* L0_64 = ConvI2L(L0);
-    Node* M_64 = ConvI2L(M);
+    Node* L0_64 = _gvn.transform(new ConvI2LNode(L0));
+    L0_64 = _gvn.transform(new AndLNode(L0_64, _gvn.longcon(0xFFFFFFFF)));
+    Node* M_64 = _gvn.transform(new ConvI2LNode(M));
+    // M_64 = _gvn.transform(new AndLNode(M_64, _gvn.longcon(0xFFFFFFFF)));
     Node* prod64 = _gvn.transform(new MulLNode(L0_64, M_64));
-    Node* V0 = ConvL2I(prod64);
+    Node* V0 = _gvn.transform(new ConvL2INode(prod64));
     Node* prod_upper = _gvn.transform(new URShiftLNode(prod64, _gvn.intcon(32)));
-    Node* U0 = ConvL2I(prod_upper);
+    Node* U0 = _gvn.transform(new ConvL2INode(prod_upper));
 
     Node* Q0 = _gvn.transform(new MulINode(H0, M));
     Node* L1 = _gvn.transform(new XorINode(Q0, U0));
 
     // Full multiplication of two 32 bit values L1 and M into a hi/lo result in two 32 bit values V1 and U1.
-    Node* L1_64 = ConvI2L(L1);
+    Node* L1_64 = _gvn.transform(new ConvI2LNode(L1));
+    L1_64 = _gvn.transform(new AndLNode(L1_64, _gvn.longcon(0xFFFFFFFF)));
     prod64 = _gvn.transform(new MulLNode(L1_64, M_64));
-    Node* V1 = ConvL2I(prod64);
+    Node* V1 = _gvn.transform(new ConvL2INode(prod64));
     prod_upper = _gvn.transform(new URShiftLNode(prod64, _gvn.intcon(32)));
-    Node* U1 = ConvL2I(prod_upper);
+    Node* U1 = _gvn.transform(new ConvL2INode(prod_upper));
 
     Node* P1 = _gvn.transform(new XorINode(V0, M));
 
