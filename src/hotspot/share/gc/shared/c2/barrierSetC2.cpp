@@ -716,7 +716,7 @@ int BarrierSetC2::arraycopy_payload_base_offset(bool is_array) {
       base_off += sizeof(int);
     } else {
       if (UseCompactObjectHeaders) {
-        //base_off = 0; /* FIXME */
+        base_off = 0; /* FIXME */
       } else {
         // Include klass to copy by 8 bytes words.
         base_off = instanceOopDesc::klass_offset_in_bytes();

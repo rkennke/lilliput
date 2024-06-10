@@ -62,7 +62,6 @@ class oopDesc {
   // make use of the C++ copy/assign incorrect.
   NONCOPYABLE(oopDesc);
 
-  inline markWord cas_set_fwd_impl(markWord new_mark, markWord old_mark, atomic_memory_order order);
   inline oop cas_set_forwardee(markWord new_mark, markWord old_mark, atomic_memory_order order);
 
  public:
@@ -75,6 +74,7 @@ class oopDesc {
 
   inline void set_mark(markWord m);
   static inline void set_mark(HeapWord* mem, markWord m);
+  inline void set_mark_full(markWord m);
   static inline void release_set_mark(HeapWord* mem, markWord m);
 
   inline void release_set_mark(markWord m);
