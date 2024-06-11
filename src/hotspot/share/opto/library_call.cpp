@@ -4606,7 +4606,7 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
     Node* header = make_load(no_ctrl, header_addr, TypeX_X, TypeX_X->basic_type(), MemNode::unordered);
 
     // Test the header to see if the object is in hashed or copied state.
-    Node* hashctrl_mask  = _gvn.MakeConX(markWord::hashctrl_hashed_mask_in_place);
+    Node* hashctrl_mask  = _gvn.MakeConX(markWord::hashctrl_mask_in_place);
     Node* masked_header  = _gvn.transform(new AndXNode(header, hashctrl_mask));
 
     // Take slow-path when the object has not been hashed.
@@ -4617,26 +4617,26 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
     generate_slow_guard(test_hashed, slow_region);
 
     // Test whether the object is hashed or hashed&copied.
-    //Node* hashed_copied = _gvn.MakeConX(2 << markWord::hashctrl_shift);
-    //Node* chk_copied    = _gvn.transform(new CmpXNode(masked_header, hashed_copied));
+    Node* hashed_copied = _gvn.MakeConX(2 << markWord::hashctrl_shift);
+    Node* chk_copied    = _gvn.transform(new CmpXNode(masked_header, hashed_copied));
     // If true, then object has been hashed&copied, otherwise it's only hashed.
-    //Node* test_copied   = _gvn.transform(new BoolNode(chk_copied, BoolTest::eq));
-    //IfNode* if_copied   = create_and_map_if(control(), test_copied, PROB_FAIR, COUNT_UNKNOWN);
-    //Node* if_true = _gvn.transform(new IfTrueNode(if_copied));
-    //Node* if_false = _gvn.transform(new IfFalseNode(if_copied));
+    Node* test_copied   = _gvn.transform(new BoolNode(chk_copied, BoolTest::eq));
+    IfNode* if_copied   = create_and_map_if(control(), test_copied, PROB_FAIR, COUNT_UNKNOWN);
+    Node* if_true = _gvn.transform(new IfTrueNode(if_copied));
+    Node* if_false = _gvn.transform(new IfFalseNode(if_copied));
 
     // Hashed&Copied path: read hash-code out of the object.
-    //set_control(if_true);
-    result_val->del_req(_fast_path2);
-    result_reg->del_req(_fast_path2);
-    result_io->del_req(_fast_path2);
-    result_mem->del_req(_fast_path2);
+    set_control(if_true);
+    // result_val->del_req(_fast_path2);
+    // result_reg->del_req(_fast_path2);
+    // result_io->del_req(_fast_path2);
+    // result_mem->del_req(_fast_path2);
 
-    //Node* obj_klass = load_object_klass(obj);
-    //Node* hash_addr;
-    //const TypeKlassPtr* klass_t = _gvn.type(obj_klass)->isa_klassptr();
-    //bool load_offset_runtime = true;
-    /*
+    Node* obj_klass = load_object_klass(obj);
+    Node* hash_addr;
+    const TypeKlassPtr* klass_t = _gvn.type(obj_klass)->isa_klassptr();
+    bool load_offset_runtime = true;
+
     if (klass_t != nullptr) {
       if (klass_t->isa_aryklassptr()) {
         // We at know compile-time that is is an array, take slow-path.
@@ -4646,34 +4646,44 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
         result_mem->del_req(_fast_path2);
         load_offset_runtime = false;
       } else if (klass_t->klass_is_exact()  && klass_t->isa_instklassptr()) {
-        // We know the InstanceKlass, load hash_offset from there at compile-time.
-        int hash_offset = reinterpret_cast<ciInstanceKlass*>(klass_t->is_instklassptr()->exact_klass())->hash_offset_in_bytes();
-        hash_addr = basic_plus_adr(obj, hash_offset);
-        Node* loaded_hash = make_load(control(), hash_addr, TypeInt::INT, T_INT, Compile::AliasIdxRaw, MemNode::unordered);
-        result_val->init_req(_fast_path2, loaded_hash);
-        result_reg->init_req(_fast_path2, control());
-        load_offset_runtime = false;
+        ciInstanceKlass* ciKlass = reinterpret_cast<ciInstanceKlass*>(klass_t->is_instklassptr()->exact_klass());
+        if (!ciKlass->is_mirror_instance_klass() && !ciKlass->is_reference_instance_klass()) {
+          // We know the InstanceKlass, load hash_offset from there at compile-time.
+          int hash_offset = ciKlass->hash_offset_in_bytes();
+          hash_addr = basic_plus_adr(obj, hash_offset);
+          Node* loaded_hash = make_load(control(), hash_addr, TypeInt::INT, T_INT, Compile::AliasIdxRaw, MemNode::unordered);
+          result_val->init_req(_fast_path2, loaded_hash);
+          result_reg->init_req(_fast_path2, control());
+          load_offset_runtime = false;
+        }
       }
     }
-    */
+
     //tty->print_cr("Load hash-offset at runtime: %s", BOOL_TO_STR(load_offset_runtime));
-    /*
-    if (false && load_offset_runtime) {
+
+    if (load_offset_runtime) {
       // We don't know if it is an array or an exact type, figure it out at run-time.
-      // If array, then we need to take slow-path.
-      generate_array_guard(obj_klass, slow_region);
+      // If not an ordinary instance, then we need to take slow-path.
+      Node* kind_addr = basic_plus_adr(obj_klass, Klass::kind_offset_in_bytes());
+      Node* kind = make_load(control(), kind_addr, TypeInt::INT, T_INT, Compile::AliasIdxRaw, MemNode::unordered);
+      Node* instance_val = _gvn.intcon(Klass::InstanceKlassKind);
+      Node* chk_inst     = _gvn.transform(new CmpINode(kind, instance_val));
+      Node* test_inst    = _gvn.transform(new BoolNode(chk_inst, BoolTest::ne));
+      generate_slow_guard(test_inst, slow_region);
+
       // Otherwise it's an instance and we can read the hash_offset from the InstanceKlass.
       Node* hash_offset_addr = basic_plus_adr(obj_klass, InstanceKlass::hash_offset_offset_in_bytes());
       Node* hash_offset = make_load(control(), hash_offset_addr, TypeInt::INT, T_INT, Compile::AliasIdxRaw, MemNode::unordered);
       // hash_offset->dump();
       Node* hash_addr = basic_plus_adr(obj, ConvI2X(hash_offset));
+      Compile::current()->set_has_unsafe_access(true);
       Node* loaded_hash = make_load(control(), hash_addr, TypeInt::INT, T_INT, Compile::AliasIdxRaw, MemNode::unordered);
       result_val->init_req(_fast_path2, loaded_hash);
       result_reg->init_req(_fast_path2, control());
     }
-    */
+
     // Hashed-only path: recompute hash-code from object address.
-    //set_control(if_false);
+    set_control(if_false);
     // Our constants.
     Node* M = _gvn.intcon(0x337954D5);
     Node* A = _gvn.intcon(0xAAAAAAAA);
@@ -4789,7 +4799,7 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
   result_reg->init_req(_fast_path, control());
   result_io ->init_req(_fast_path, i_o());
   result_mem->init_req(_fast_path, init_mem);
-  /*
+
   if (UseCompactObjectHeaders) {
     if (result_io->req() >= _fast_path2) {
       result_io->init_req(_fast_path2, i_o());
@@ -4798,7 +4808,7 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
       result_mem->init_req(_fast_path2, init_mem);
     }
   }
-  */
+
   // Generate code for the slow case.  We make a call to hashCode().
   assert(slow_region != nullptr, "must have slow_region");
   set_control(_gvn.transform(slow_region));
