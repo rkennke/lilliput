@@ -368,20 +368,17 @@ size_t oopDesc::forward_safe_size() {
 
 void oopDesc::forward_safe_init_mark() {
   if (UseCompactObjectHeaders) {
-    markWord orig_mark = mark();
-    markWord fwd_mark = orig_mark;
-    if (orig_mark.is_forwarded()) {
-      fwd_mark = forwardee(orig_mark)->mark();
-    }
-    Klass* klass = forward_safe_klass_impl(fwd_mark);
-    markWord m = klass->prototype_header().hash_copy_hashctrl_from(fwd_mark);
-    if (orig_mark.is_forward_expanded()) {
-      assert(m.hash_is_copied(), "must be copied hash state");
-      assert(!m.hash_is_hashed(), "must not be hashed hash state");
+    markWord m = mark();
+    bool expanded = m.is_forward_expanded();
+    assert(m.is_forwarded(), "only called when forwarded");
+    m = forwardee(m)->mark();
+    m = m.set_age(0);
+    m = m.set_unlocked();
+    if (expanded) {
       m = m.hash_set_hashed();
     }
     // log_info(gc)("FS Init mark: oop: " PTR_FORMAT ", mark: " INTPTR_FORMAT, p2i(this), m.value());
-    set_mark(m);
+    set_mark_full(m);
   } else {
     set_mark(markWord::prototype());
   }
