@@ -41,7 +41,7 @@
 #include "gc/shared/gcTraceTime.inline.hpp"
 #include "gc/shared/referencePolicy.hpp"
 #include "gc/shared/referenceProcessorPhaseTimes.hpp"
-#include "gc/shared/space.hpp"
+#include "gc/shared/space.inline.hpp"
 #include "gc/shared/spaceDecorator.hpp"
 #include "gc/shared/strongRootsScope.hpp"
 #include "gc/shared/weakProcessor.hpp"
@@ -746,17 +746,21 @@ void DefNewGeneration::remove_forwarding_pointers() {
   // Will enter Full GC soon due to failed promotion. Must reset the mark word
   // of objs in young-gen so that no objs are marked (forwarded) when Full GC
   // starts. (The mark word is overloaded: `is_marked()` == `is_forwarded()`.)
-  struct ResetForwardedMarkWord : ObjectClosure {
-    void do_object(oop obj) override {
+  struct ResetForwardedMarkWord {
+    size_t do_object(oop obj) {
+      markWord mark = obj->mark();
+      markWord fwdmark = mark;
       if (obj->is_self_forwarded()) {
         obj->unset_self_forwarded();
       } else if (obj->is_forwarded()) {
+        fwdmark = obj->forwardee(mark)->mark();
         obj->forward_safe_init_mark();
       }
+      return obj->size();
     }
   } cl;
-  eden()->object_iterate(&cl);
-  from()->object_iterate(&cl);
+  eden()->object_iterate_sized(&cl);
+  from()->object_iterate_sized(&cl);
 }
 
 void DefNewGeneration::handle_promotion_failure(oop old) {

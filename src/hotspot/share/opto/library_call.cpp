@@ -4801,10 +4801,10 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
   result_mem->init_req(_fast_path, init_mem);
 
   if (UseCompactObjectHeaders) {
-    if (result_io->req() >= _fast_path2) {
+    if (result_io->req() > _fast_path2) {
       result_io->init_req(_fast_path2, i_o());
     }
-    if (result_mem->req() >= _fast_path2) {
+    if (result_mem->req() > _fast_path2) {
       result_mem->init_req(_fast_path2, init_mem);
     }
   }
