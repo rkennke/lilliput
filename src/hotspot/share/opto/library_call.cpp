@@ -4638,14 +4638,7 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
     bool load_offset_runtime = true;
 
     if (klass_t != nullptr) {
-      if (klass_t->isa_aryklassptr()) {
-        // We at know compile-time that is is an array, take slow-path.
-        result_val->del_req(_fast_path2);
-        result_reg->del_req(_fast_path2);
-        result_io->del_req(_fast_path2);
-        result_mem->del_req(_fast_path2);
-        load_offset_runtime = false;
-      } else if (klass_t->klass_is_exact()  && klass_t->isa_instklassptr()) {
+      if (klass_t->klass_is_exact()  && klass_t->isa_instklassptr()) {
         ciInstanceKlass* ciKlass = reinterpret_cast<ciInstanceKlass*>(klass_t->is_instklassptr()->exact_klass());
         if (!ciKlass->is_mirror_instance_klass() && !ciKlass->is_reference_instance_klass()) {
           // We know the InstanceKlass, load hash_offset from there at compile-time.
@@ -4801,12 +4794,8 @@ bool LibraryCallKit::inline_native_hashcode(bool is_virtual, bool is_static) {
   result_mem->init_req(_fast_path, init_mem);
 
   if (UseCompactObjectHeaders) {
-    if (result_io->req() > _fast_path2) {
-      result_io->init_req(_fast_path2, i_o());
-    }
-    if (result_mem->req() > _fast_path2) {
-      result_mem->init_req(_fast_path2, init_mem);
-    }
+    result_io->init_req(_fast_path2, i_o());
+    result_mem->init_req(_fast_path2, init_mem);
   }
 
   // Generate code for the slow case.  We make a call to hashCode().
