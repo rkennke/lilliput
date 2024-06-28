@@ -56,6 +56,7 @@ public class Mark extends VMObject {
     hashShift           = db.lookupLongConstant("markWord::hash_shift").longValue();
     if (VM.getVM().isLP64()) {
       klassShift          = db.lookupLongConstant("markWord::klass_shift").longValue();
+      if (klassShift != 13) { throw new InternalError(); }
     }
     lockMask            = db.lookupLongConstant("markWord::lock_mask").longValue();
     lockMaskInPlace     = db.lookupLongConstant("markWord::lock_mask_in_place").longValue();
