@@ -3747,6 +3747,9 @@ jint Arguments::apply_ergo() {
   }
 
 #ifdef _LP64
+  if (UseCompactObjectHeaders && UseZGC && !ZGenerational) {
+    FLAG_SET_DEFAULT(UseCompactObjectHeaders, false);
+  }
   if (UseCompactObjectHeaders && UseParallelGC) {
     FLAG_SET_DEFAULT(UseCompactObjectHeaders, false);
   }
