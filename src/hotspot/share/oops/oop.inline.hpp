@@ -87,8 +87,8 @@ void oopDesc::set_mark_full(markWord m) {
 }
 
 void oopDesc::set_mark(HeapWord* mem, markWord m) {
-  if (UseCompactObjectHeaders) assert(!(m.hash_is_hashed() && m.hash_is_copied()), "must not be simultaneously hashed and copied state");
   if (UseCompactObjectHeaders) {
+    assert(!(m.hash_is_hashed() && m.hash_is_copied()), "must not be simultaneously hashed and copied state");
     *(uint32_t*)(((char*)mem) + mark_offset_in_bytes()) = m.value32();
   } else {
     *(markWord*)(((char*)mem) + mark_offset_in_bytes()) = m;
@@ -105,8 +105,8 @@ void oopDesc::release_set_mark(markWord m) {
 }
 
 void oopDesc::release_set_mark(HeapWord* mem, markWord m) {
-  if (UseCompactObjectHeaders) assert(!(m.hash_is_hashed() && m.hash_is_copied()), "must not be simultaneously hashed and copied state");
   if (UseCompactObjectHeaders) {
+    assert(!(m.hash_is_hashed() && m.hash_is_copied()), "must not be simultaneously hashed and copied state");
     Atomic::release_store((uint32_t*)(((char*)mem) + mark_offset_in_bytes()), m.value32());
   } else {
     Atomic::release_store((markWord*)(((char*)mem) + mark_offset_in_bytes()), m);
