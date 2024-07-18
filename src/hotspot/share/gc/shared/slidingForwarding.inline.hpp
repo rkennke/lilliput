@@ -132,6 +132,7 @@ inline void SlidingForwarding::forward_to_impl(oop from, oop to) {
   if (is_fallback(encoded)) {
     fallback_forward_to(from_hw, to_hw);
   }
+  NOT_PRODUCT(Atomic::inc(&_num_forwardings);)
 }
 
 inline void SlidingForwarding::forward_to(oop obj, oop fwd) {

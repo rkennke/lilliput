@@ -30,9 +30,8 @@
 #include "memory/memRegion.hpp"
 #include "oops/markWord.hpp"
 #include "oops/oopsHierarchy.hpp"
-#include "utilities/fastHash.hpp"
-#include "utilities/resourceHash.hpp"
 
+class FallbackTable;
 class Mutex;
 
 /**
@@ -96,31 +95,6 @@ class Mutex;
  */
 class SlidingForwarding : public AllStatic {
 private:
-
-  /*
-   * A simple hash-table that acts as fallback for the sliding forwarding.
-   * This is used in the case of G1 serial compaction, which violates the
-   * assumption of sliding forwarding that each object of any region is only
-   * ever forwarded to one of two target regions. At this point, the GC is
-   * scrambling to free up more Java heap memory, and therefore performance
-   * is not the major concern.
-   *
-   * The implementation is a straightforward open hashtable.
-   * It is a single-threaded (not thread-safe) implementation, and that
-   * is sufficient because G1 serial compaction is single-threaded.
-   */
-  inline static unsigned hash(HeapWord* const& from) {
-    uint64_t val = reinterpret_cast<uint64_t>(from);
-    uint64_t hash = FastHash::get_hash64(val, UCONST64(0xAAAAAAAAAAAAAAAA));
-    return checked_cast<unsigned>(hash >> 32);
-  }
-  inline static bool equals(HeapWord* const& lhs, HeapWord* const& rhs) {
-    return lhs == rhs;
-  }
-  typedef ResourceHashtable<HeapWord* /* key-type */, HeapWord* /* value-type */,
-                            1024 /* size */, AnyObj::C_HEAP /* alloc-type */, mtGC,
-                            SlidingForwarding::hash, SlidingForwarding::equals> FallbackTable;
-
   static const uintptr_t MARK_LOWER_HALF_MASK = right_n_bits(11);
 
   // One bit selects the target region
@@ -162,7 +136,11 @@ private:
   static HeapWord**     _biased_bases[NUM_TARGET_REGIONS];
 
   static FallbackTable* _fallback_table;
-  static Mutex* _fallback_lock;
+
+#ifndef PRODUCT
+  static volatile uint64_t _num_forwardings;
+  static volatile uint64_t _num_fallback_forwardings;
+#endif
 
   static inline size_t biased_region_index_containing(HeapWord* addr);
 
