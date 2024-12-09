@@ -42,9 +42,7 @@ void G1FullGCCompactTask::G1CompactRegionClosure::clear_in_bitmap(oop obj) {
 
 size_t G1FullGCCompactTask::G1CompactRegionClosure::apply(oop obj) {
   size_t size = obj->size();
-  if (FullGCForwarding::is_forwarded(obj)) {
-    G1FullGCCompactTask::copy_object_to_new_location(obj);
-  }
+  G1FullGCCompactTask::copy_object_to_new_location(obj);
 
   // Clear the mark for the compacted object to allow reuse of the
   // bitmap without an additional clearing step.
@@ -53,18 +51,17 @@ size_t G1FullGCCompactTask::G1CompactRegionClosure::apply(oop obj) {
 }
 
 void G1FullGCCompactTask::copy_object_to_new_location(oop obj) {
-  assert(FullGCForwarding::is_forwarded(obj), "Sanity!");
-  assert(FullGCForwarding::forwardee(obj) != obj, "Object must have a new location");
-
-  size_t size = obj->size();
-  // Copy object and reinit its mark.
-  HeapWord* obj_addr = cast_from_oop<HeapWord*>(obj);
-  HeapWord* destination = cast_from_oop<HeapWord*>(FullGCForwarding::forwardee(obj));
-  Copy::aligned_conjoint_words(obj_addr, destination, size);
-
+  oop dst = FullGCForwarding::forwardee(obj);
+  if (obj != dst) {
+    size_t size = obj->size();
+    // Copy object and reinit its mark.
+    HeapWord* obj_addr = cast_from_oop<HeapWord*>(obj);
+    HeapWord* destination = cast_from_oop<HeapWord*>(dst);
+    Copy::aligned_conjoint_words(obj_addr, destination, size);
+  }
   // There is no need to transform stack chunks - marking already did that.
-  cast_to_oop(destination)->init_mark();
-  assert(cast_to_oop(destination)->klass() != nullptr, "should have a class");
+  dst->init_mark();
+  assert(dst->klass() != nullptr, "should have a class");
 }
 
 void G1FullGCCompactTask::compact_region(G1HeapRegion* hr) {

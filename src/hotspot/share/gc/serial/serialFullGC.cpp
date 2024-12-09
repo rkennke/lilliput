@@ -131,6 +131,8 @@ public:
       CollectedHeap::fill_with_object(dead_start, dead_length);
       oop obj = cast_to_oop(dead_start);
       // obj->set_mark(obj->mark().set_marked());
+      // Needed?
+      FullGCForwarding::forward_to(obj, obj);
 
       assert(dead_length == obj->size(), "bad filler object size");
       log_develop_trace(gc, compaction)("Inserting object to dead space: " PTR_FORMAT ", " PTR_FORMAT ", " SIZE_FORMAT "b",
@@ -143,6 +145,10 @@ public:
     }
   }
 };
+
+static bool is_oop_alive(HeapWord* addr) {
+  return (cast_to_oop(addr)->mark().value() & 1) != 0;
+}
 
 // Implement the "compaction" part of the mark-compact GC algorithm.
 class Compacter {
@@ -230,13 +236,9 @@ class Compacter {
 
   static void forward_obj(oop obj, HeapWord* new_addr) {
     prefetch_write_scan(obj);
-    if (cast_from_oop<HeapWord*>(obj) != new_addr) {
-      FullGCForwarding::forward_to(obj, cast_to_oop(new_addr));
-    } else {
-      assert(obj->is_gc_marked(), "inv");
-      // This obj will stay in-place. Fix the markword.
-      obj->init_mark();
-    }
+    // We are forwarding all live objects for now even
+    // objects that don't move.
+    FullGCForwarding::forward_to(obj, cast_to_oop(new_addr));
   }
 
   static HeapWord* find_next_live_addr(HeapWord* start, HeapWord* end) {
@@ -256,15 +258,16 @@ class Compacter {
     prefetch_read_scan(addr);
 
     oop obj = cast_to_oop(addr);
-    oop new_obj = FullGCForwarding::forwardee(obj);
-    HeapWord* new_addr = cast_from_oop<HeapWord*>(new_obj);
-    assert(addr != new_addr, "inv");
-    prefetch_write_copy(new_addr);
-
     size_t obj_size = obj->size();
-    Copy::aligned_conjoint_words(addr, new_addr, obj_size);
-    new_obj->init_mark();
+    oop new_obj = FullGCForwarding::forwardee(obj);
+    if (obj != new_obj) {
+      HeapWord* new_addr = cast_from_oop<HeapWord*>(new_obj);
+      assert(addr != new_addr, "inv");
+      prefetch_write_copy(new_addr);
 
+      Copy::aligned_conjoint_words(addr, new_addr, obj_size);
+    }
+    new_obj->init_mark();
     return obj_size;
   }
 
@@ -302,6 +305,7 @@ public:
         if (obj->is_gc_marked()) {
           HeapWord* new_addr = alloc(obj_size);
           forward_obj(obj, new_addr);
+          assert(is_oop_alive(cur_addr), "must be alive after forwarding");
           cur_addr += obj_size;
         } else {
           // Skipping the current known-unmarked obj
@@ -309,12 +313,14 @@ public:
           if (dead_spacer.insert_deadspace(cur_addr, next_live_addr)) {
             // Register space for the filler obj
             alloc(pointer_delta(next_live_addr, cur_addr));
+            assert(is_oop_alive(cur_addr), "dead-spaced obj must be alive");
           } else {
             if (!record_first_dead_done) {
               record_first_dead(i, cur_addr);
               record_first_dead_done = true;
             }
             *(HeapWord**)cur_addr = next_live_addr;
+            assert(!is_oop_alive(cur_addr), "must not be alive");
           }
           cur_addr = next_live_addr;
         }
@@ -335,7 +341,7 @@ public:
 
       while (cur_addr < top) {
         prefetch_write_scan(cur_addr);
-        if (cur_addr < first_dead || cast_to_oop(cur_addr)->is_gc_marked()) {
+        if (cur_addr < first_dead || is_oop_alive(cur_addr)) {
           size_t size = cast_to_oop(cur_addr)->oop_iterate_size(&SerialFullGC::adjust_pointer_closure);
           cur_addr += size;
         } else {
@@ -353,13 +359,13 @@ public:
       HeapWord* top = space->top();
 
       // Check if the first obj inside this space is forwarded.
-      if (!FullGCForwarding::is_forwarded(cast_to_oop(cur_addr))) {
+      if (!is_oop_alive(cur_addr)) {
         // Jump over consecutive (in-place) live-objs-chunk
         cur_addr = get_first_dead(i);
       }
 
       while (cur_addr < top) {
-        if (!FullGCForwarding::is_forwarded(cast_to_oop(cur_addr))) {
+        if (!is_oop_alive(cur_addr)) {
           cur_addr = *(HeapWord**) cur_addr;
           continue;
         }
@@ -624,10 +630,10 @@ template <class T> void SerialFullGC::adjust_pointer(T* p) {
   if (!CompressedOops::is_null(heap_oop)) {
     oop obj = CompressedOops::decode_not_null(heap_oop);
     assert(Universe::heap()->is_in(obj), "should be in heap");
-
-    if (FullGCForwarding::is_forwarded(obj)) {
-      oop new_obj = FullGCForwarding::forwardee(obj);
-      assert(is_object_aligned(new_obj), "oop must be aligned");
+    assert(is_oop_alive(cast_from_oop<HeapWord*>(obj)), "must be alive: " INTPTR_FORMAT, obj->mark().value());
+    oop new_obj = FullGCForwarding::forwardee(obj);
+    assert(is_object_aligned(new_obj), "oop must be aligned");
+    if (new_obj != obj) {
       RawAccess<IS_NOT_NULL>::oop_store(p, new_obj);
     }
   }
@@ -697,6 +703,8 @@ void SerialFullGC::invoke_at_safepoint(bool clear_all_softrefs) {
 
   phase1_mark(clear_all_softrefs);
 
+  FullGCForwarding::begin();
+
   Compacter compacter{gch};
 
   {
@@ -739,6 +747,8 @@ void SerialFullGC::invoke_at_safepoint(bool clear_all_softrefs) {
   }
 
   restore_marks();
+
+  FullGCForwarding::end();
 
   deallocate_stacks();
 

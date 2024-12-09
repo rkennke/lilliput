@@ -77,15 +77,12 @@ inline void PSParallelCompact::adjust_pointer(T* p) {
     oop obj = CompressedOops::decode_not_null(heap_oop);
     assert(ParallelScavengeHeap::heap()->is_in(obj), "should be in heap");
 
-    if (!obj->is_forwarded()) {
-      return;
-    }
     oop new_obj = FullGCForwarding::forwardee(obj);
-    assert(new_obj != nullptr, "non-null address for live objects");
-    assert(new_obj != obj, "inv");
-    assert(ParallelScavengeHeap::heap()->is_in_reserved(new_obj),
-           "should be in object space");
-    RawAccess<IS_NOT_NULL>::oop_store(p, new_obj);
+    if (new_obj != obj) {
+      assert(ParallelScavengeHeap::heap()->is_in_reserved(new_obj),
+             "should be in object space");
+      RawAccess<IS_NOT_NULL>::oop_store(p, new_obj);
+    }
   }
 }
 

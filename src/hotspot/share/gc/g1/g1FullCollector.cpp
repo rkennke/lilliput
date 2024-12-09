@@ -36,6 +36,7 @@
 #include "gc/g1/g1OopClosures.hpp"
 #include "gc/g1/g1Policy.hpp"
 #include "gc/g1/g1RegionMarkStatsCache.inline.hpp"
+#include "gc/shared/fullGCForwarding.hpp"
 #include "gc/shared/gcTraceTime.inline.hpp"
 #include "gc/shared/preservedMarks.inline.hpp"
 #include "gc/shared/classUnloadingContext.hpp"
@@ -147,7 +148,6 @@ G1FullCollector::G1FullCollector(G1CollectedHeap* heap,
     _oop_queue_set.register_queue(i, marker(i)->oop_stack());
     _array_queue_set.register_queue(i, marker(i)->objarray_stack());
   }
-  _serial_compaction_point.set_preserved_stack(_preserved_marks_set.get(0));
   _humongous_compaction_point.set_preserved_stack(_preserved_marks_set.get(0));
   _region_attr_table.initialize(heap->reserved(), G1HeapRegion::GrainBytes);
 }
@@ -212,6 +212,8 @@ void G1FullCollector::collect() {
   // Don't add any more derived pointers during later phases
   deactivate_derived_pointers();
 
+  FullGCForwarding::begin();
+
   phase2_prepare_compaction();
 
   if (has_compaction_targets()) {
@@ -223,6 +225,8 @@ void G1FullCollector::collect() {
     // The live ratio is only considered if do_maximal_compaction is false.
     log_info(gc, phases) ("No Regions selected for compaction. Skipping Phase 3: Adjust pointers and Phase 4: Compact heap");
   }
+
+  FullGCForwarding::end();
 
   phase5_reset_metadata();
 
@@ -459,10 +463,7 @@ void G1FullCollector::phase2d_prepare_humongous_compaction() {
     } else if (hr->is_starts_humongous()) {
       size_t obj_size = cast_to_oop(hr->bottom())->size();
       uint num_regions = (uint)G1CollectedHeap::humongous_obj_size_in_regions(obj_size);
-      // Even during last-ditch compaction we should not move pinned humongous objects.
-      if (!hr->has_pinned_objects()) {
-        humongous_cp->forward_humongous(hr);
-      }
+      humongous_cp->forward_humongous(hr);
       region_index += num_regions; // Advance over all humongous regions.
       continue;
     } else if (is_compaction_target(region_index)) {

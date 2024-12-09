@@ -22,13 +22,13 @@
  */
 
 #include "precompiled.hpp"
-#include "gc/shared/preservedMarks.inline.hpp"
 #include "gc/shared/fullGCForwarding.inline.hpp"
+#include "gc/shared/preservedMarks.inline.hpp"
 #include "oops/oop.inline.hpp"
 #include "unittest.hpp"
 
 static markWord originalMark() { return markWord(markWord::lock_mask_in_place); }
-static markWord changedMark()  { return markWord(0x4711); }
+static markWord changedMark()  { return markWord(0x4712); }
 
 #define ASSERT_MARK_WORD_EQ(a, b) ASSERT_EQ((a).value(), (b).value())
 
@@ -56,6 +56,8 @@ TEST_VM(PreservedMarks, iterate_and_restore) {
   ASSERT_MARK_WORD_EQ(o1->mark(), changedMark());
   ASSERT_MARK_WORD_EQ(o2->mark(), changedMark());
 
+  FullGCForwarding::begin();
+
   // Push o1 and o2 to have their marks preserved.
   pm.push_if_necessary(o1, o1->mark());
   pm.push_if_necessary(o2, o2->mark());
@@ -74,4 +76,5 @@ TEST_VM(PreservedMarks, iterate_and_restore) {
   pm.restore();
   ASSERT_MARK_WORD_EQ(o3->mark(), changedMark());
   ASSERT_MARK_WORD_EQ(o4->mark(), changedMark());
+  FullGCForwarding::end();
 }

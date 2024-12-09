@@ -43,8 +43,9 @@ void PreservedMarks::restore() {
 
 void PreservedMarks::adjust_preserved_mark(PreservedMark* elem) {
   oop obj = elem->get_oop();
-  if (FullGCForwarding::is_forwarded(obj)) {
-    elem->set_oop(FullGCForwarding::forwardee(obj));
+  oop new_obj = FullGCForwarding::forwardee(obj);
+  if (new_obj != obj) {
+    elem->set_oop(new_obj);
   }
 }
 

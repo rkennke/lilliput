@@ -115,10 +115,11 @@ inline bool G1DetermineCompactionQueueClosure::do_heap_region(G1HeapRegion* hr) 
 }
 
 inline size_t G1SerialRePrepareClosure::apply(oop obj) {
-  if (FullGCForwarding::is_forwarded(obj)) {
-    // We skip objects compiled into the first region or
-    // into regions not part of the serial compaction point.
-    if (cast_from_oop<HeapWord*>(FullGCForwarding::forwardee(obj)) < _dense_prefix_top) {
+  // We skip objects compiled into the first region or
+  // into regions not part of the serial compaction point.
+  oop fwd = FullGCForwarding::forwardee(obj);
+  if (obj != fwd) {
+    if (cast_from_oop<HeapWord*>(fwd) < _dense_prefix_top) {
       return obj->size();
     }
   }

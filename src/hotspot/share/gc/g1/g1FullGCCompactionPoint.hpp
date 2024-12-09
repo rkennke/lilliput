@@ -48,6 +48,8 @@ class G1FullGCCompactionPoint : public CHeapObj<mtGC> {
   G1HeapRegion* next_region();
   uint find_contiguous_before(G1HeapRegion* hr, uint num_regions);
 
+  bool forward_humongous_impl(G1HeapRegion* hr);
+
 public:
   G1FullGCCompactionPoint(G1FullCollector* collector, PreservedMarks* preserved_stack);
   ~G1FullGCCompactionPoint();
@@ -67,7 +69,6 @@ public:
   GrowableArray<G1HeapRegion*>* regions();
 
   PreservedMarks* preserved_stack() const {
-    assert(_preserved_stack != nullptr, "must be initialized");
     return _preserved_stack;
   }
 

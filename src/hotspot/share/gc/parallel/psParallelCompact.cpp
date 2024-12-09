@@ -1049,11 +1049,15 @@ bool PSParallelCompact::invoke_no_policy(bool clear_all_soft_refs) {
     DerivedPointerTable::set_active(false);
 #endif
 
+    FullGCForwarding::begin();
+
     forward_to_new_addr();
 
     adjust_pointers();
 
     compact();
+
+    FullGCForwarding::end();
 
     ParCompactionManager::_preserved_marks_set->restore(&ParallelScavengeHeap::heap()->workers());
 
@@ -1565,10 +1569,10 @@ void PSParallelCompact::forward_to_new_addr() {
         }
         assert(mark_bitmap()->is_marked(cur_addr), "inv");
         oop obj = cast_to_oop(cur_addr);
-        if (new_addr != cur_addr) {
-          cm->preserved_marks()->push_if_necessary(obj, obj->mark());
-          FullGCForwarding::forward_to(obj, cast_to_oop(new_addr));
-        }
+
+        cm->preserved_marks()->push_if_necessary(obj, obj->mark());
+        FullGCForwarding::forward_to(obj, cast_to_oop(new_addr));
+
         size_t obj_size = obj->size();
         new_addr += obj_size;
         cur_addr += obj_size;
@@ -1579,7 +1583,7 @@ void PSParallelCompact::forward_to_new_addr() {
       ParCompactionManager* cm = ParCompactionManager::gc_thread_compaction_manager(worker_id);
       for (uint id = old_space_id; id < last_space_id; ++id) {
         MutableSpace* sp = PSParallelCompact::space(SpaceId(id));
-        HeapWord* dense_prefix_addr = dense_prefix(SpaceId(id));
+        HeapWord* dense_prefix_addr = sp->bottom(); //dense_prefix(SpaceId(id));
         HeapWord* top = sp->top();
 
         if (dense_prefix_addr == top) {
@@ -1631,7 +1635,8 @@ void PSParallelCompact::forward_to_new_addr() {
 
 #ifdef ASSERT
 void PSParallelCompact::verify_forward() {
-  HeapWord* old_dense_prefix_addr = dense_prefix(SpaceId(old_space_id));
+  MutableSpace* old_sp = PSParallelCompact::space(SpaceId(old_space_id));
+  HeapWord* old_dense_prefix_addr = old_sp->bottom(); //dense_prefix(SpaceId(old_space_id));
   RegionData* old_region = _summary_data.region(_summary_data.addr_to_region_idx(old_dense_prefix_addr));
   HeapWord* bump_ptr = old_region->partial_obj_size() != 0
                        ? old_dense_prefix_addr + old_region->partial_obj_size()
@@ -1640,7 +1645,7 @@ void PSParallelCompact::verify_forward() {
 
   for (uint id = old_space_id; id < last_space_id; ++id) {
     MutableSpace* sp = PSParallelCompact::space(SpaceId(id));
-    HeapWord* dense_prefix_addr = dense_prefix(SpaceId(id));
+    HeapWord* dense_prefix_addr = sp->bottom(); //dense_prefix(SpaceId(id));
     HeapWord* top = sp->top();
     HeapWord* cur_addr = dense_prefix_addr;
 
@@ -1657,11 +1662,8 @@ void PSParallelCompact::verify_forward() {
         bump_ptr_space = space_id(bump_ptr);
       }
       oop obj = cast_to_oop(cur_addr);
-      if (cur_addr == bump_ptr) {
-        assert(!FullGCForwarding::is_forwarded(obj), "inv");
-      } else {
-        assert(FullGCForwarding::forwardee(obj) == cast_to_oop(bump_ptr), "inv");
-      }
+      assert(FullGCForwarding::forwardee(obj) == cast_to_oop(bump_ptr), "inv");
+
       bump_ptr += obj->size();
       cur_addr += obj->size();
     }
@@ -1728,7 +1730,8 @@ void PSParallelCompact::prepare_region_draining_tasks(uint parallel_gc_threads)
     SpaceInfo* const space_info = _space_info + id;
     HeapWord* const new_top = space_info->new_top();
 
-    const size_t beg_region = sd.addr_to_region_idx(space_info->dense_prefix());
+    MutableSpace* sp = PSParallelCompact::space(SpaceId(id));
+    const size_t beg_region = sd.addr_to_region_idx(sp->bottom());
     const size_t end_region =
       sd.addr_to_region_idx(sd.region_align_up(new_top));
 
@@ -2452,11 +2455,10 @@ void MoveAndUpdateClosure::do_addr(HeapWord* addr, size_t words) {
   if (copy_destination() != source()) {
     DEBUG_ONLY(PSParallelCompact::check_new_location(source(), destination());)
     assert(source() != destination(), "inv");
-    assert(FullGCForwarding::is_forwarded(cast_to_oop(source())), "inv");
     assert(FullGCForwarding::forwardee(cast_to_oop(source())) == cast_to_oop(destination()), "inv");
     Copy::aligned_conjoint_words(source(), copy_destination(), words);
-    cast_to_oop(copy_destination())->init_mark();
   }
+  cast_to_oop(copy_destination())->init_mark();
 
   update_state(words);
 }
